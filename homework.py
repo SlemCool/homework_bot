@@ -1,3 +1,4 @@
+import http
 import logging
 import os
 import time
@@ -52,18 +53,25 @@ def get_api_answer(timestamp):
     """Запрос к эндпоинту API-сервиса."""
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=timestamp)
-    except Exception as error:
-        logging.error(f'Ошибка при запросе к основному API: {error}')
-    return response.json()
+        if response.status_code != http.HTTPStatus.OK:
+            logging.error('API не отвечает')
+            raise http.exceptions.HTTPError()
+        return response.json()
+    except requests.exceptions.RequestException as request_error:
+        logging.error(f'Ошибка запроса к API: {request_error}')
 
 
 def check_response(response):
     """Проверяет ответ API на соответствие документации."""
-    try:
-        homework = response[0]
-        return homework
-    except Exception as error:
-        logging.error(f'Ошибка при проверке запроса от API: {error}')
+    if not isinstance(response, dict):
+        raise TypeError('Тип response должен быть dict')
+    if not isinstance(response['homework'], list):
+        raise TypeError('Тип homework должен быть list')
+    if 'homework' not in response:
+        raise KeyError('В response нет значения с ключом homework')
+    if response['homeworks'] == []:
+        return {}
+    return response.get('homeworks')[0]
 
 
 def parse_status(homework):
@@ -74,7 +82,9 @@ def parse_status(homework):
         verdict = HOMEWORK_VERDICTS[homework['status']]
         return f'Изменился статус проверки работы "{homework_name}". {verdict}'
     except Exception as error:
-        logging.error(f'Статус не в запросе не соответствует словарю - {error}')
+        logging.error(
+            f'Статус не в запросе не соответствует словарю - {error}'
+        )
 
 
 def main():
@@ -87,18 +97,23 @@ def main():
         try:
             response = get_api_answer({'from_date': timestamp})
             timestamp = response['current_date']
-            homework = check_response(response['homeworks'])
+            homework = check_response(response)
             if homework and status != homework['status']:
                 status = homework['status']
                 message = parse_status(homework)
                 send_message(bot, message)
-                logging.debug(f'Сообщение отправленно со статусом - "{status}"')
+                logging.debug(
+                    f'Сообщение отправленно со статусом - "{status}"'
+                )
+            else:
+                logging.debug(f'Статус не поменялся. Всё ещё: {status}')
             print(f'Уже должно быть заполнено - {status}')
-            time.sleep(10)
+            time.sleep(RETRY_PERIOD)
 
         except Exception as error:
             message = f'Сбой в работе программы: {error}'
             send_message(bot, message)
+            logging.error(message)
             raise ValueError(f'хз что но что-то не так!')
         ...
 
