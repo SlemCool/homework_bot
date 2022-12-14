@@ -42,13 +42,16 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверка предзаполненных переменных окружения."""
-    if not PRACTICUM_TOKEN or not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
+    try:
+        return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
+    except Exception:
         logger.critical('Отсутствует хотя бы одна переменная окружения')
         raise ValueError('Отсутствует хотя бы одна переменная окружения!')
 
 
 def send_message(bot, message):
     """Отправка сообщения пользователю бота."""
+    logger.debug('Начало отправки сообщения в Telegram')
     try:
         bot.send_message(TELEGRAM_CHAT_ID, message)
         logger.debug(f'Сообщение отправлено: {message}')
@@ -58,6 +61,7 @@ def send_message(bot, message):
 
 def get_api_answer(timestamp):
     """Запрос к эндпоинту API-сервиса."""
+    logger.debug('Посылаем запрос к API практикума')
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=timestamp)
         if response.status_code != http.HTTPStatus.OK:
