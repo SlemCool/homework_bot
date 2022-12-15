@@ -42,11 +42,7 @@ HOMEWORK_VERDICTS = {
 
 def check_tokens():
     """Проверка предзаполненных переменных окружения."""
-    try:
-        return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
-    except Exception:
-        logger.critical('Отсутствует хотя бы одна переменная окружения')
-        raise ValueError('Отсутствует хотя бы одна переменная окружения!')
+    return all((PRACTICUM_TOKEN, TELEGRAM_TOKEN, TELEGRAM_CHAT_ID))
 
 
 def send_message(bot, message):
@@ -61,7 +57,9 @@ def send_message(bot, message):
 
 def get_api_answer(timestamp):
     """Запрос к эндпоинту API-сервиса."""
-    logger.debug('Посылаем запрос к API практикума')
+    logger.debug(
+        f'Посылаем запрос к API: {ENDPOINT} с меткой времени: {timestamp}'
+    )
     try:
         response = requests.get(ENDPOINT, headers=HEADERS, params=timestamp)
         if response.status_code != http.HTTPStatus.OK:
@@ -75,51 +73,52 @@ def get_api_answer(timestamp):
 
 def check_response(response):
     """Проверяет ответ API на соответствие документации."""
-    if type(response) is not dict:
+    logger.debug('Проверяем response и возвращаем список работ')
+    if not isinstance(response, dict):
         raise TypeError(f'response должен быть dict, а не: {type(response)}')
+    homeworks = response.get('homeworks')
     if 'homeworks' not in response:
-        raise KeyError('Ключ homeworks отсутствует')
-    if type(response['homeworks']) is not list:
-        raise TypeError(
-            f'homework должен быть list а не: {type(response["homeworks"])}'
-        )
-    if response['homeworks'] == []:
-        return {}
-    return response.get('homeworks')[0]
+        raise KeyError('Ключ homeworks отсутствует в response')
+    if 'current_date' not in response:
+        raise KeyError('Ключ current_date отсутствует в response')
+    if not isinstance(homeworks, list):
+        raise TypeError(f'homework должен быть list а не: {type(homeworks)}')
+    logger.debug(f'response прошёл проверку и возвращает: {homeworks}')
+    return homeworks
 
 
 def parse_status(homework):
     """Извлекает статус работы."""
-    if homework['status'] not in HOMEWORK_VERDICTS:
-        raise KeyError(f'Неожиданный статус проверки {homework["status"]}')
+    homework_name = homework.get('homework_name')
+    homework_status = homework.get('status')
     if 'homework_name' not in homework:
-        raise KeyError('Отсутствует ключ homework_name')
-    try:
-        homework_name = homework['homework_name']
-        verdict = HOMEWORK_VERDICTS[homework['status']]
-        return f'Изменился статус проверки работы "{homework_name}". {verdict}'
-    except Exception as error:
-        logger.error(f'Статус не в запросе не соответствует словарю - {error}')
+        raise KeyError('Ключ homework_name отсутствует в homework')
+    if 'status' not in homework:
+        raise KeyError('Ключ status отсутствует в homework')
+    if homework_status not in HOMEWORK_VERDICTS:
+        raise KeyError(f'Неожиданный статус проверки {homework_status}')
+    verdict = HOMEWORK_VERDICTS[homework_status]
+    return f'Изменился статус проверки работы "{homework_name}". {verdict}'
 
 
 def main():
     """Основная логика работы бота."""
     logger.info('Бот приступает к патрулированию')
-    check_tokens()
+    if not check_tokens():
+        logger.critical('Отсутствует хотя бы одна переменная окружения')
+        raise ValueError('Отсутствует хотя бы одна переменная окружения!')
     logger.debug('Переменные прошли проверку')
     bot = telegram.Bot(token=TELEGRAM_TOKEN)
     timestamp = int(time.time())
-    status = ''
     while True:
         try:
             response = get_api_answer({'from_date': timestamp})
             timestamp = response['current_date']
-            homework = check_response(response)
-            if homework and status != homework['status']:
-                status = homework['status']
-                message = parse_status(homework)
+            logger.debug(f'Обновляем метку времени на: {timestamp}')
+            homeworks = check_response(response)
+            if homeworks:
+                message = parse_status(homeworks[0])
                 send_message(bot, message)
-                logger.debug(f'Сообщение отправлено со статусом - "{status}"')
             else:
                 logger.debug('Статус проверки не поменялся.')
         except Exception as error:
